@@ -13,12 +13,24 @@ import json, glob, os, sys, calendar, subprocess, platform
 from collections import defaultdict
 from datetime import datetime, timedelta
 
+# From docs.anthropic.com/pricing — $/MTok
+# i=input, o=output, cr=cache_read, c5=cache_write_5min, c1=cache_write_1hour
 PRICING = {
-    "claude-opus-4-6":            {"i": 5, "o": 25, "cr": 0.50, "c5": 6.25, "c1": 10},
-    "claude-opus-4-5-20251101":   {"i": 5, "o": 25, "cr": 0.50, "c5": 6.25, "c1": 10},
-    "claude-sonnet-4-6":          {"i": 3, "o": 15, "cr": 0.30, "c5": 3.75, "c1": 6},
-    "claude-sonnet-4-5-20250929": {"i": 3, "o": 15, "cr": 0.30, "c5": 3.75, "c1": 6},
-    "claude-haiku-4-5-20251001":  {"i": 1, "o": 5,  "cr": 0.10, "c5": 1.25, "c1": 2},
+    # Current
+    "claude-opus-4-6":            {"i": 5,    "o": 25,   "cr": 0.50, "c5": 6.25,  "c1": 10},
+    "claude-sonnet-4-6":          {"i": 3,    "o": 15,   "cr": 0.30, "c5": 3.75,  "c1": 6},
+    "claude-haiku-4-5-20251001":  {"i": 1,    "o": 5,    "cr": 0.10, "c5": 1.25,  "c1": 2},
+    # Legacy
+    "claude-opus-4-5-20251101":   {"i": 5,    "o": 25,   "cr": 0.50, "c5": 6.25,  "c1": 10},
+    "claude-opus-4-1-20250805":   {"i": 15,   "o": 75,   "cr": 1.50, "c5": 18.75, "c1": 30},
+    "claude-sonnet-4-5-20250929": {"i": 3,    "o": 15,   "cr": 0.30, "c5": 3.75,  "c1": 6},
+    "claude-sonnet-4-20250514":   {"i": 3,    "o": 15,   "cr": 0.30, "c5": 3.75,  "c1": 6},
+    "claude-opus-4-20250514":     {"i": 15,   "o": 75,   "cr": 1.50, "c5": 18.75, "c1": 30},
+    "claude-haiku-3-5-20241022":  {"i": 0.80, "o": 4,    "cr": 0.08, "c5": 1,     "c1": 1.6},
+    "claude-3-haiku-20240307":    {"i": 0.25, "o": 1.25, "cr": 0.03, "c5": 0.30,  "c1": 0.50},
+    "claude-3-opus-20240229":     {"i": 15,   "o": 75,   "cr": 1.50, "c5": 18.75, "c1": 30},
+    "claude-3-5-sonnet-20241022": {"i": 3,    "o": 15,   "cr": 0.30, "c5": 3.75,  "c1": 6},
+    "claude-3-5-sonnet-20240620": {"i": 3,    "o": 15,   "cr": 0.30, "c5": 3.75,  "c1": 6},
 }
 
 def main():
@@ -85,13 +97,21 @@ def main():
         "sessions": len(month_sessions),
     }
 
-    # Compute cost for stderr summary
+    # Compute cost for stderr summary (same math as the web UI)
     total = 0
     for model, tokens in M.items():
-        rates = PRICING.get(model, PRICING.get("claude-opus-4-6", {}))
-        total += (tokens["i"] / 1e6 * rates["i"] + tokens["o"] / 1e6 * rates["o"]
-                  + tokens["cr"] / 1e6 * rates["cr"]
-                  + tokens["c5"] / 1e6 * rates["c5"] + tokens["c1"] / 1e6 * rates["c1"])
+        r = PRICING.get(model)
+        if not r:
+            # Fuzzy match by model prefix
+            for k, v in PRICING.items():
+                if model.startswith(k.split("-20")[0]):
+                    r = v
+                    break
+            if not r:
+                r = PRICING["claude-opus-4-6"]
+        total += (tokens["i"] / 1e6 * r["i"] + tokens["o"] / 1e6 * r["o"]
+                  + tokens["cr"] / 1e6 * r["cr"]
+                  + tokens["c5"] / 1e6 * r["c5"] + tokens["c1"] / 1e6 * r["c1"])
 
     print(f"Scanned {file_count:,} files, {len(R):,} total requests", file=sys.stderr)
     print(f"Month: {mo} ({len(days)}/{md} days, {req_count:,} requests)", file=sys.stderr)
