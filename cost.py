@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 # i=input, o=output, cr=cache_read, c5=cache_write_5min, c1=cache_write_1hour
 PRICING = {
     # Current
+    "claude-opus-4-8":            {"i": 5,    "o": 25,   "cr": 0.50, "c5": 6.25,  "c1": 10},
+    "claude-opus-4-7":            {"i": 5,    "o": 25,   "cr": 0.50, "c5": 6.25,  "c1": 10},
     "claude-opus-4-6":            {"i": 5,    "o": 25,   "cr": 0.50, "c5": 6.25,  "c1": 10},
     "claude-sonnet-4-6":          {"i": 3,    "o": 15,   "cr": 0.30, "c5": 3.75,  "c1": 6},
     "claude-haiku-4-5-20251001":  {"i": 1,    "o": 5,    "cr": 0.10, "c5": 1.25,  "c1": 2},
@@ -32,6 +34,36 @@ PRICING = {
     "claude-3-5-sonnet-20241022": {"i": 3,    "o": 15,   "cr": 0.30, "c5": 3.75,  "c1": 6},
     "claude-3-5-sonnet-20240620": {"i": 3,    "o": 15,   "cr": 0.30, "c5": 3.75,  "c1": 6},
 }
+
+# Current-generation list rates by family, used for models not in PRICING.
+# Prevents an unknown future model from silently inheriting a legacy
+# (higher-priced) entry via prefix matching.
+DEFAULT_RATES = {
+    "opus":   {"i": 5, "o": 25, "cr": 0.50, "c5": 6.25, "c1": 10},
+    "sonnet": {"i": 3, "o": 15, "cr": 0.30, "c5": 3.75, "c1": 6},
+    "haiku":  {"i": 1, "o": 5,  "cr": 0.10, "c5": 1.25, "c1": 2},
+}
+
+def rate_for(model):
+    """Resolve a model id to a rate dict. Exact match first, then a dated
+    variant of a known alias (e.g. claude-opus-4-8-20260101), then the
+    current-gen default for the family with a warning. Never silently
+    falls through to a legacy entry."""
+    r = PRICING.get(model)
+    if r:
+        return r
+    # Dated variant of a known alias: require the full alias + "-" so e.g.
+    # "claude-opus-4-7" can never match the alias "claude-opus-4-6".
+    for k, v in PRICING.items():
+        if model.startswith(k + "-"):
+            return v
+    for family, v in DEFAULT_RATES.items():
+        if family in model:
+            print(f"warning: unknown model '{model}', using current {family} list rates",
+                  file=sys.stderr)
+            return v
+    print(f"warning: unrecognized model '{model}', using opus list rates", file=sys.stderr)
+    return DEFAULT_RATES["opus"]
 
 def main():
     clipboard = "--clipboard" in sys.argv or "-c" in sys.argv
@@ -100,15 +132,7 @@ def main():
     # Compute cost for stderr summary (same math as the web UI)
     total = 0
     for model, tokens in M.items():
-        r = PRICING.get(model)
-        if not r:
-            # Fuzzy match by model prefix
-            for k, v in PRICING.items():
-                if model.startswith(k.split("-20")[0]):
-                    r = v
-                    break
-            if not r:
-                r = PRICING["claude-opus-4-6"]
+        r = rate_for(model)
         total += (tokens["i"] / 1e6 * r["i"] + tokens["o"] / 1e6 * r["o"]
                   + tokens["cr"] / 1e6 * r["cr"]
                   + tokens["c5"] / 1e6 * r["c5"] + tokens["c1"] / 1e6 * r["c1"])
