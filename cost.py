@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 # i=input, o=output, cr=cache_read, c5=cache_write_5min, c1=cache_write_1hour
 PRICING = {
     # Current
+    "claude-fable-5":             {"i": 10,   "o": 50,   "cr": 1.00, "c5": 12.50, "c1": 20},
+    "claude-mythos-5":            {"i": 10,   "o": 50,   "cr": 1.00, "c5": 12.50, "c1": 20},
     "claude-opus-4-8":            {"i": 5,    "o": 25,   "cr": 0.50, "c5": 6.25,  "c1": 10},
     "claude-opus-4-7":            {"i": 5,    "o": 25,   "cr": 0.50, "c5": 6.25,  "c1": 10},
     "claude-opus-4-6":            {"i": 5,    "o": 25,   "cr": 0.50, "c5": 6.25,  "c1": 10},
@@ -39,9 +41,11 @@ PRICING = {
 # Prevents an unknown future model from silently inheriting a legacy
 # (higher-priced) entry via prefix matching.
 DEFAULT_RATES = {
-    "opus":   {"i": 5, "o": 25, "cr": 0.50, "c5": 6.25, "c1": 10},
-    "sonnet": {"i": 3, "o": 15, "cr": 0.30, "c5": 3.75, "c1": 6},
-    "haiku":  {"i": 1, "o": 5,  "cr": 0.10, "c5": 1.25, "c1": 2},
+    "fable":  {"i": 10, "o": 50, "cr": 1.00, "c5": 12.50, "c1": 20},
+    "mythos": {"i": 10, "o": 50, "cr": 1.00, "c5": 12.50, "c1": 20},
+    "opus":   {"i": 5,  "o": 25, "cr": 0.50, "c5": 6.25,  "c1": 10},
+    "sonnet": {"i": 3,  "o": 15, "cr": 0.30, "c5": 3.75,  "c1": 6},
+    "haiku":  {"i": 1,  "o": 5,  "cr": 0.10, "c5": 1.25,  "c1": 2},
 }
 
 def rate_for(model):
