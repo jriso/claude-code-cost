@@ -9,19 +9,28 @@ Usage:
     python3 cost.py              # JSON to stdout
     python3 cost.py --clipboard  # also copy to clipboard
 """
-import json, glob, os, sys, calendar, subprocess, platform
+import json, glob, os, re, sys, calendar, subprocess, platform
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-# From docs.anthropic.com/pricing — $/MTok
+# From platform.claude.com/docs/en/about-claude/pricing — $/MTok
 # i=input, o=output, cr=cache_read, c5=cache_write_5min, c1=cache_write_1hour
 PRICING = {
     # Current
+    "claude-fable-5-1":           {"i": 10,   "o": 50,   "cr": 0.25, "c5": 12.50, "c1": 20},
+    "claude-mythos-5-1":          {"i": 10,   "o": 50,   "cr": 0.25, "c5": 12.50, "c1": 20},
+    "claude-opus-5-5":            {"i": 4,    "o": 20,   "cr": 0.20, "c5": 5,     "c1": 8},
+    "claude-sonnet-5-5":          {"i": 2,    "o": 10,   "cr": 0.10, "c5": 2.50,  "c1": 4},
+    "claude-haiku-5-5":           {"i": 0.10, "o": 0.50, "cr": 0.01, "c5": 0.125, "c1": 0.20},
+    "claude-haiku-5-5:long":      {"i": 0.50, "o": 2.50, "cr": 0.05, "c5": 0.625, "c1": 1},
+    # Previous
     "claude-fable-5":             {"i": 10,   "o": 50,   "cr": 1.00, "c5": 12.50, "c1": 20},
     "claude-mythos-5":            {"i": 10,   "o": 50,   "cr": 1.00, "c5": 12.50, "c1": 20},
+    "claude-opus-5":              {"i": 5,    "o": 25,   "cr": 0.50, "c5": 6.25,  "c1": 10},
     "claude-opus-4-8":            {"i": 5,    "o": 25,   "cr": 0.50, "c5": 6.25,  "c1": 10},
     "claude-opus-4-7":            {"i": 5,    "o": 25,   "cr": 0.50, "c5": 6.25,  "c1": 10},
     "claude-opus-4-6":            {"i": 5,    "o": 25,   "cr": 0.50, "c5": 6.25,  "c1": 10},
+    "claude-sonnet-5":            {"i": 2,    "o": 10,   "cr": 0.20, "c5": 2.50,  "c1": 4},
     "claude-sonnet-4-6":          {"i": 3,    "o": 15,   "cr": 0.30, "c5": 3.75,  "c1": 6},
     "claude-haiku-4-5-20251001":  {"i": 1,    "o": 5,    "cr": 0.10, "c5": 1.25,  "c1": 2},
     # Legacy
@@ -37,32 +46,47 @@ PRICING = {
     "claude-3-5-sonnet-20240620": {"i": 3,    "o": 15,   "cr": 0.30, "c5": 3.75,  "c1": 6},
 }
 
+# Models priced higher above a prompt-size threshold. Requests over the
+# threshold are tallied under "<model>:long".
+LONG_PROMPT = {"claude-haiku-5-5": 100_000}
+
 # Current-generation list rates by family, used for models not in PRICING.
 # Prevents an unknown future model from silently inheriting a legacy
 # (higher-priced) entry via prefix matching.
 DEFAULT_RATES = {
-    "fable":  {"i": 10, "o": 50, "cr": 1.00, "c5": 12.50, "c1": 20},
-    "mythos": {"i": 10, "o": 50, "cr": 1.00, "c5": 12.50, "c1": 20},
-    "opus":   {"i": 5,  "o": 25, "cr": 0.50, "c5": 6.25,  "c1": 10},
-    "sonnet": {"i": 3,  "o": 15, "cr": 0.30, "c5": 3.75,  "c1": 6},
-    "haiku":  {"i": 1,  "o": 5,  "cr": 0.10, "c5": 1.25,  "c1": 2},
+    "fable":  PRICING["claude-fable-5-1"],
+    "mythos": PRICING["claude-mythos-5-1"],
+    "opus":   PRICING["claude-opus-5-5"],
+    "sonnet": PRICING["claude-sonnet-5-5"],
+    "haiku":  PRICING["claude-haiku-5-5"],
 }
+
+DATED = re.compile(r"^(.+)-\d{8}$")
+
+def base_model(model):
+    """Strip a dated pin (claude-opus-5-5-20261201 -> claude-opus-5-5) if the
+    undated alias is known. Requires an 8-digit date so e.g. claude-opus-5-5
+    can never resolve to claude-opus-5."""
+    m = DATED.match(model)
+    return m.group(1) if m and m.group(1) in PRICING else model
+
+def bucket(model, prompt_tokens):
+    """Key a request is tallied under in the JSON output."""
+    limit = LONG_PROMPT.get(base_model(model))
+    return model + ":long" if limit and prompt_tokens > limit else model
 
 def rate_for(model):
     """Resolve a model id to a rate dict. Exact match first, then a dated
-    variant of a known alias (e.g. claude-opus-4-8-20260101), then the
-    current-gen default for the family with a warning. Never silently
-    falls through to a legacy entry."""
-    r = PRICING.get(model)
+    variant of a known alias, then the current-gen default for the family
+    with a warning. Never silently falls through to a legacy entry."""
+    name, _, tier = model.partition(":")
+    key = base_model(name) + (":" + tier if tier else "")
+    r = PRICING.get(key) or PRICING.get(base_model(name))
     if r:
         return r
-    # Dated variant of a known alias: require the full alias + "-" so e.g.
-    # "claude-opus-4-7" can never match the alias "claude-opus-4-6".
-    for k, v in PRICING.items():
-        if model.startswith(k + "-"):
-            return v
+    seg = name.split("-")
     for family, v in DEFAULT_RATES.items():
-        if family in model:
+        if family in seg:
             print(f"warning: unknown model '{model}', using current {family} list rates",
                   file=sys.stderr)
             return v
@@ -121,8 +145,9 @@ def main():
             req_count += 1
             if v.get("s"):
                 month_sessions.add(v["s"])
+            key = bucket(v["m"], v["i"] + v["cr"] + v["c5"] + v["c1"])
             for k in ["i", "o", "cr", "c5", "c1"]:
-                M[v["m"]][k] += v[k]
+                M[key][k] += v[k]
 
     result = {
         "month": mo,

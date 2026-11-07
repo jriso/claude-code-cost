@@ -2,7 +2,7 @@
 
 How much would your Claude Code usage cost at API list prices?
 
-Scans your local `~/.claude/projects/` JSONL files, deduplicates by `requestId`, and calculates the cost using [Anthropic's published pricing](https://docs.anthropic.com/en/docs/about-claude/pricing).
+Scans your local `~/.claude/projects/` JSONL files, deduplicates by `requestId`, and calculates the cost using [Anthropic's published pricing](https://platform.claude.com/docs/en/about-claude/pricing).
 
 ## Quick start
 
@@ -17,7 +17,7 @@ Outputs a JSON summary to stdout (~7 seconds). Paste it into the calculator at [
 - Reads JSONL session logs that Claude Code writes locally
 - Deduplicates streaming events by `requestId` (avoids ~1.5x overcounting)
 - Splits cache writes by tier (5-minute vs 1-hour) using `cache_creation.ephemeral_*` fields
-- Applies per-model pricing for 13+ model versions
+- Applies per-model pricing for 24 model versions, including prompt-size pricing tiers
 - Reports the last complete calendar month
 
 ## What it doesn't do
@@ -35,4 +35,4 @@ python3 cost.py --clipboard  # also copy to clipboard (macOS/Linux)
 
 ## Methodology
 
-See the [Sources & methodology](https://risogroup.co/projects/claude-cost) section on the calculator page, or review `cost.py` directly — it's ~100 lines of stdlib Python.
+See the [Sources & methodology](https://risogroup.co/projects/claude-cost) section on the calculator page, or review `cost.py` directly — it's ~200 lines of stdlib Python.
